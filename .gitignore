@@ -1,0 +1,106 @@
+# ==========================================
+# Python
+# ==========================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.so
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# Virtual Environments
+# ==========================================
+.venv/
+.venv-signtrain/
+venv/
+env/
+**/.venv/
+**/.venv-signtrain/
+**/venv/
+**/env/
+
+# ==========================================
+# Secrets and Environment Variables
+# ==========================================
+.env
+.env.*
+!.env.example
+config/api_credentials.env
+**/api_credentials.env
+*.pem
+*.key
+secrets/
+
+# ==========================================
+# Node.js / React / Vite
+# ==========================================
+node_modules/
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+dist/
+build/
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ==========================================
+# ML Training Outputs
+# ==========================================
+runs/
+**/runs/
+wandb/
+mlruns/
+lightning_logs/
+*.h5
+*.pb
+*.tflite
+backend/trained_models/*.keras
+backend/trained_models/*.h5
+
+# ==========================================
+# Datasets
+# ==========================================
+dataset/
+datasets/
+dataset_source_roboflow/
+**/dataset/
+**/datasets/
+**/dataset_source_roboflow/
+
+# ==========================================
+# Large PyTorch Model Files
+# ==========================================
+models/*.pt
+weights/*.pt
+yolov5nu.pt
+
+# ==========================================
+# IDE and Operating System
+# ==========================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/settings.json
+*.swp
+
+# ==========================================
+# Logs, Backups and Temporary Files
+# ==========================================
+*.log
+history.json
+*.bak
+*.tmp
+~$*
+*.zip
+yolo_tools/

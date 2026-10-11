@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignSpeakAI - Real-Time Hand Gesture & Sign Language Translation</title>
+    <meta name="description" content="Real-time web application for hand gesture sign language detection using Roboflow AI and Web APIs to empower communication for deaf individuals.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- TensorFlow.js Client-Side Neural Network Engine -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <!-- MediaPipe Hands & Camera Utils for 126 Skeletal Features Extraction -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- App Stylesheet -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Header Navigation -->
+        <header class="app-header">
+            <div class="logo-group">
+                <div class="logo-icon-wrapper">
+                    <i class="fa-solid fa-hands-asl-interpreting logo-icon"></i>
+                    <span class="pulse-ring"></span>
+                </div>
+                <div class="logo-text">
+                    <h1>SignSpeak<span class="highlight">AI</span></h1>
+                    <span class="tagline">Real-Time Sign Language Translator</span>
+                </div>
+            </div>
+
+            <div class="header-status">
+                <div class="model-badge">
+                    <i class="fa-solid fa-microchip"></i>
+                    <span>Engine: <code id="modelIdDisplay">TFJS Graph Model (126 Features)</code></span>
+                </div>
+                <div id="connectionStatus" class="status-badge offline">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Camera Stopped</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content Grid -->
+        <main class="dashboard-grid">
+            
+            <!-- Left Side: Live Webcam Feed & Canvas Overlay -->
+            <section class="feed-card shadow-glass">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-video icon-gradient"></i> Live Gesture Camera</h2>
+                    <div class="feed-stats">
+                        <span class="stat-pill"><i class="fa-solid fa-bolt"></i> <span id="fpsCounter">0</span> FPS</span>
+                        <span class="stat-pill"><i class="fa-solid fa-clock"></i> <span id="latencyCounter">0</span> ms</span>
+                    </div>
+                </div>
+
+                <!-- Video Viewport & Detection Overlay Canvas -->
+                <div class="video-container" id="videoContainer">
+                    <video id="webcam" autoplay playsinline muted></video>
+                    <canvas id="overlayCanvas"></canvas>
+                    
+                    <!-- Viewport Overlay State Messages -->
+                    <div id="webcamPlaceholder" class="video-placeholder">
+                        <i class="fa-solid fa-camera-retro placeholder-icon"></i>
+                        <h3>Webcam Disconnected</h3>
+                        <p>Click "Start Camera" below to launch real-time hand gesture detection.</p>
+                        <button id="startCamBtnPlaceholder" class="btn btn-primary">
+                            <i class="fa-solid fa-play"></i> Start Camera
+                        </button>
+                    </div>
+
+                    <!-- Live Detection Overlay Badge -->
+                    <div id="detectionIndicator" class="detection-indicator hidden">
+                        <span class="pulse-dot"></span>
+                        <span id="detectedGestureName">Detecting...</span>
+                    </div>
+                </div>
+
+                <!-- Camera Control Toolbar -->
+                <div class="camera-toolbar">
+                    <button id="toggleCamBtn" class="btn btn-primary">
+                        <i class="fa-solid fa-video"></i> <span>Start Camera</span>
+                    </button>
+
+                    <button id="toggleDetectionBtn" class="btn btn-secondary" disabled>
+                        <i class="fa-solid fa-pause"></i> <span>Pause Detection</span>
+                    </button>
+
+                    <div class="toolbar-divider"></div>
+
+                    <button id="apiKeyModalBtn" class="btn btn-outline" title="Roboflow API Settings">
+                        <i class="fa-solid fa-key"></i> <span>API Key</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Right Side: Real-Time Sentence Builder & Output Controls -->
+            <section class="readout-card shadow-glass">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-comment-dots icon-gradient"></i> Sentence Readout</h2>
+                    <div class="readout-badge">
+                        <i class="fa-solid fa-layer-group"></i>
+                        <span>State Words: <strong id="wordCount">0</strong></span>
+                    </div>
+                </div>
+
+                <!-- Main Full Sentence Display Box -->
+                <div class="sentence-box" id="sentenceBoxContainer">
+                    <div class="sentence-words-wrapper" id="sentenceWordsList">
+                        <span class="empty-prompt" id="emptyPrompt">
+                            <i class="fa-solid fa-hand-sparkles"></i> Perform sign gestures in front of camera to form sentences...
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Action Controls for Sentence -->
+                <div class="sentence-toolbar">
+                    <button id="speakBtn" class="btn btn-accent btn-glow" title="Speak sentence aloud" disabled>
+                        <i class="fa-solid fa-volume-high"></i> <span>Speak</span>
+                    </button>
+
+                    <button id="copyBtn" class="btn btn-secondary" title="Copy text to clipboard" disabled>
+                        <i class="fa-regular fa-copy"></i> <span>Copy</span>
+                    </button>
+
+                    <button id="backspaceBtn" class="btn btn-secondary" title="Remove last word" disabled>
+                        <i class="fa-solid fa-delete-left"></i> <span>Undo</span>
+                    </button>
+
+                    <button id="clearBtn" class="btn btn-danger-outline" title="Clear sentence" disabled>
+                        <i class="fa-solid fa-trash-can"></i> <span>Clear</span>
+                    </button>
+                </div>
+
+                <!-- Quick Action Word Injection Pills (go, come, sit, eat, etc.) -->
+                <div class="quick-words-section">
+                    <span class="section-title"><i class="fa-solid fa-bolt-lightning"></i> Quick Gesture Actions:</span>
+                    <div class="word-pills">
+                        <button class="quick-pill" data-word="go">go</button>
+                        <button class="quick-pill" data-word="come">come</button>
+                        <button class="quick-pill" data-word="sit">sit</button>
+                        <button class="quick-pill" data-word="eat">eat</button>
+                        <button class="quick-pill" data-word="hello">hello</button>
+                        <button class="quick-pill" data-word="help">help</button>
+                        <button class="quick-pill" data-word="thank you">thank you</button>
+                        <button class="quick-pill" data-word="yes">yes</button>
+                        <button class="quick-pill" data-word="no">no</button>
+                    </div>
+                </div>
+
+                <!-- Roboflow Model Settings & Threshold Controls -->
+                <div class="settings-panel">
+                    <div class="setting-row">
+                        <label for="confidenceSlider">
+                            <span>Confidence Threshold: <strong id="confidenceVal">65%</strong></span>
+                        </label>
+                        <input type="range" id="confidenceSlider" min="20" max="95" value="65" step="5">
+                    </div>
+
+                    <div class="setting-row">
+                        <label for="scanRateSlider">
+                            <span>Scan Frequency: <strong id="scanRateVal">300 ms</strong></span>
+                        </label>
+                        <input type="range" id="scanRateSlider" min="100" max="1000" value="300" step="50">
+                    </div>
+
+                    <div class="setting-row-inline">
+                        <label class="switch-container">
+                            <input type="checkbox" id="autoSpeakToggle">
+                            <span class="switch-slider"></span>
+                            <span class="switch-label"><i class="fa-solid fa-robot"></i> Auto-Speak Recognized Words</span>
+                        </label>
+
+                        <label class="switch-container">
+                            <input type="checkbox" id="bboxToggle" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-label"><i class="fa-solid fa-vector-square"></i> Show Bounding Boxes</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Bottom Full-Width Section: Real-time Prediction Stream Log & Model Details -->
+            <section class="logs-card shadow-glass">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-chart-line icon-gradient"></i> Real-Time Inference Stream</h2>
+                    <span class="log-info"><i class="fa-solid fa-server"></i> Roboflow Hosted Inference (`https://detect.roboflow.com/sign-language-c8yo2/2`)</span>
+                </div>
+                <div class="log-table-wrapper">
+                    <table class="log-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Class Gesture</th>
+                                <th>Confidence</th>
+                                <th>Bounding Box (x, y, w, h)</th>
+                                <th>Action Taken</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inferenceLogBody">
+                            <tr class="empty-row">
+                                <td colspan="5">No inference data received yet. Start the camera to begin live streaming frames to Roboflow.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Roboflow API Key Configuration Modal -->
+    <div id="apiKeyModal" class="modal-overlay hidden">
+        <div class="modal-content shadow-glass">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-key icon-gradient"></i> Configure Roboflow API Key</h3>
+                <button id="closeApiKeyModalBtn" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>SignSpeakAI uses the Roboflow Hosted API to infer sign language gestures from your webcam frames using model ID <code>sign-language-c8yo2/2</code>.</p>
+                <div class="input-group">
+                    <label for="apiKeyInput">Roboflow API Key:</label>
+                    <input type="password" id="apiKeyInput" placeholder="e.g. rf_xxxxxx or your Roboflow API Key" autocomplete="off">
+                    <button id="toggleShowApiKeyBtn" class="btn btn-icon"><i class="fa-solid fa-eye"></i></button>
+                </div>
+                <p class="help-text">
+                    <i class="fa-solid fa-circle-info"></i> Don't have a key? Get your free API key at <a href="https://roboflow.com" target="_blank" rel="noopener">roboflow.com</a> under Account Settings -> API Keys.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button id="saveApiKeyBtn" class="btn btn-primary">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Key & Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Offscreen Frame Capture Canvas -->
+    <canvas id="captureCanvas" class="hidden"></canvas>
+
+    <!-- App JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>

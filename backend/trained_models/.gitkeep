@@ -1,0 +1,7 @@
+# Place your trained gesture_model.keras file here.
+# The model is loaded automatically on server startup.
+# If missing, the app runs in demo mode with random predictions.
+#
+# Expected path: trained_models/gesture_model.keras
+# Input shape:   (1, 63)  — 21 landmarks × (x, y, z)
+# Output shape:  (1, N)   — N gesture classes (softmax)
