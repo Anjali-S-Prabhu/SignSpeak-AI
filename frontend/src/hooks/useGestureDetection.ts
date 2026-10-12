@@ -9,7 +9,7 @@ import { classifyLandmarks } from '@/services/landmarkInference'
 import type { LandmarkPoint } from '@/hooks/useMediaPipe'
 
 const DETECTION_INTERVAL_MS = 66 // ~15 FPS target for smooth real-time on-device inference
-const REQUIRED_STABLE_FRAMES = 5 // Consecutive inference frames required to accept a sign (~330ms)
+const REQUIRED_STABLE_FRAMES = 3 // Consecutive inference frames required to accept a sign (~200ms)
 
 // MediaPipe hand skeleton connections (palm + fingers)
 const HAND_CONNECTIONS: [number, number][] = [

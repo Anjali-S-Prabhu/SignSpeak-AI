@@ -170,11 +170,6 @@ export function useMediaPipe(
       const video = videoRef.current
       const hands = handsRef.current as { send: (opts: { image: HTMLVideoElement }) => Promise<void> } | null
       if (video && hands && video.readyState >= 2) {
-        const canvas = canvasRef.current
-        if (canvas) {
-          canvas.width = video.videoWidth || 640
-          canvas.height = video.videoHeight || 480
-        }
         await hands.send({ image: video })
       }
       animFrameRef.current = requestAnimationFrame(loop)

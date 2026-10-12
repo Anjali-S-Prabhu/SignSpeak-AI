@@ -115,7 +115,7 @@ const initialState: AppState = {
   modelLoaded: false,
   totalPredictions: 0,
   inferenceEngine: 'yolo',
-  confidenceThreshold: 0.50,
+  confidenceThreshold: 0.35,
   isPaused: false,
   showBoxes: true,
   wordCooldownSeconds: 4,

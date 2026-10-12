@@ -157,10 +157,10 @@ export default function GesturePanel({ gesture, confidence, predictionTime, mode
       <div style={{ marginBottom: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
           <span style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 500 }}>
-            Sign Stability (5 Frames)
+            Sign Stability (3 Frames)
           </span>
-          <span style={{ fontSize: '0.73rem', color: state.stabilityCount >= 5 ? '#4ade80' : '#818cf8', fontWeight: 600 }}>
-            {state.stabilityCount}/5 frames
+          <span style={{ fontSize: '0.73rem', color: state.stabilityCount >= 3 ? '#4ade80' : '#818cf8', fontWeight: 600 }}>
+            {state.stabilityCount}/3 frames
           </span>
         </div>
         <div style={{
@@ -173,10 +173,10 @@ export default function GesturePanel({ gesture, confidence, predictionTime, mode
           <motion.div
             style={{
               height: '100%',
-              background: state.stabilityCount >= 5 ? '#4ade80' : 'linear-gradient(90deg, #6366f1, #38bdf8)',
+              background: state.stabilityCount >= 3 ? '#4ade80' : 'linear-gradient(90deg, #6366f1, #38bdf8)',
               borderRadius: '4px',
             }}
-            animate={{ width: `${(state.stabilityCount / 5) * 100}%` }}
+            animate={{ width: `${(state.stabilityCount / 3) * 100}%` }}
             transition={{ duration: 0.15 }}
           />
         </div>

@@ -5,6 +5,9 @@ import * as ort from 'onnxruntime-web'
 ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/'
 ort.env.wasm.numThreads = 1
 
+/**
+ * 34 Gesture Classes strictly matching dataset/data_clean.yaml
+ */
 export const YOLO_SIGN_CLASSES = [
   'brother',
   'call',
@@ -45,8 +48,8 @@ export const YOLO_SIGN_CLASSES = [
 export type YoloSignClass = typeof YOLO_SIGN_CLASSES[number]
 
 export interface DetectionBox {
-  x: number      // normalized 0..1
-  y: number      // normalized 0..1
+  x: number      // normalized 0..1 (top-left x)
+  y: number      // normalized 0..1 (top-left y)
   width: number  // normalized 0..1
   height: number // normalized 0..1
   classIndex: number
@@ -63,16 +66,17 @@ export interface YoloInferenceResult {
 let session: ort.InferenceSession | null = null
 let isInitializing = false
 let initError: Error | null = null
-let activeModelPath: string | null = null
-let modelInputSize = 416
+const MODEL_PATH = '/models/sign_gestures_34cls.onnx'
+export const MODEL_INPUT_SIZE = 416
 
-// Offscreen canvas reuse for high-performance frame capture
+// Offscreen canvas reuse for high-performance frame capture and letterboxing
 let offscreenCanvas: HTMLCanvasElement | null = null
 let offscreenCtx: CanvasRenderingContext2D | null = null
 
 /**
  * Initializes the ONNX inference session in the browser.
- * Loads the new 34-class YOLO ONNX model hosted statically in public/models/
+ * Loads strictly the 34-class YOLO ONNX model hosted statically in public/models/.
+ * Never falls back to legacy 6-class models.
  */
 export async function initYoloModel(): Promise<boolean> {
   if (session) return true
@@ -82,44 +86,28 @@ export async function initYoloModel(): Promise<boolean> {
   initError = null
 
   try {
-    const modelPaths = [
-      '/models/sign_gestures_34cls.onnx',
-      '/models/sign_yolov5_quant.onnx',
-      '/models/sign_yolov5.onnx',
-    ]
+    console.log(`[YOLO Web] Initializing 34-class gesture model from: ${MODEL_PATH}`)
 
-    let loadedSession: ort.InferenceSession | null = null
-    for (const path of modelPaths) {
-      try {
-        console.log(`[YOLO Web] Attempting to load model from: ${path}`)
-        loadedSession = await ort.InferenceSession.create(path, {
-          executionProviders: ['wasm'],
-          graphOptimizationLevel: 'all',
-        })
-        activeModelPath = path
-        // Detect model input size based on active model
-        if (path.includes('sign_gestures_34cls')) {
-          modelInputSize = 416
-        } else {
-          modelInputSize = 640
-        }
-        console.log(`[YOLO Web] Successfully loaded model from ${path} (inputSize=${modelInputSize})`)
-        break
-      } catch (err) {
-        console.warn(`[YOLO Web] Failed to load from ${path}:`, err)
-      }
-    }
+    // Create session strictly for the 34-class model
+    const loadedSession = await ort.InferenceSession.create(MODEL_PATH, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    })
 
-    if (!loadedSession) {
-      throw new Error('Could not load sign detection ONNX model from static public/models path.')
-    }
+    const inputName = loadedSession.inputNames[0] || 'images'
+    const outputName = loadedSession.outputNames[0] || 'output0'
+
+    console.log(`[YOLO Web] 34-Class Model Loaded Successfully!`)
+    console.log(`[YOLO Web] Input: "${inputName}", Output: "${outputName}"`)
+    console.log(`[YOLO Web] Class Count: ${YOLO_SIGN_CLASSES.length} classes`)
 
     session = loadedSession
     isInitializing = false
     return true
   } catch (err: unknown) {
-    initError = err instanceof Error ? err : new Error(String(err))
-    console.error('[YOLO Web] Initialization failed:', initError)
+    const errorObj = err instanceof Error ? err : new Error(String(err))
+    initError = new Error(`Failed to load 34-class model (${MODEL_PATH}): ${errorObj.message}`)
+    console.error('[YOLO Web] Model initialization failed:', initError)
     isInitializing = false
     return false
   }
@@ -129,8 +117,8 @@ export function isYoloModelLoaded(): boolean {
   return session !== null
 }
 
-export function getActiveModelPath(): string | null {
-  return activeModelPath
+export function getActiveModelPath(): string {
+  return MODEL_PATH
 }
 
 export function getYoloInitError(): string | null {
@@ -138,12 +126,13 @@ export function getYoloInitError(): string | null {
 }
 
 /**
- * Runs client-side YOLO object detection on the HTML5 video element.
- * Zero frames leave the user's device.
+ * Runs client-side YOLO object detection on the HTML5 video or canvas element.
+ * Applies letterbox preprocessing to maintain native aspect ratio without distortion.
+ * Decodes the [1, 38, 3549] output tensor directly with Non-Maximum Suppression.
  */
 export async function runYoloInference(
-  video: HTMLVideoElement,
-  confidenceThreshold = 0.4,
+  source: HTMLVideoElement | HTMLCanvasElement | HTMLImageElement,
+  confidenceThreshold = 0.35,
   iouThreshold = 0.45,
 ): Promise<YoloInferenceResult> {
   const tStart = performance.now()
@@ -155,17 +144,29 @@ export async function runYoloInference(
     }
   }
 
-  const videoWidth = video.videoWidth
-  const videoHeight = video.videoHeight
-  if (!videoWidth || !videoHeight) {
+  // Determine source dimensions
+  let srcWidth = 0
+  let srcHeight = 0
+  if (source instanceof HTMLVideoElement) {
+    srcWidth = source.videoWidth
+    srcHeight = source.videoHeight
+  } else if (source instanceof HTMLImageElement) {
+    srcWidth = source.naturalWidth || source.width
+    srcHeight = source.naturalHeight || source.height
+  } else if (source instanceof HTMLCanvasElement) {
+    srcWidth = source.width
+    srcHeight = source.height
+  }
+
+  if (!srcWidth || !srcHeight) {
     return { detections: [], topDetection: null, inferenceTimeMs: 0 }
   }
 
-  // Set up offscreen buffer matching model input size (416x416 or 640x640)
-  if (!offscreenCanvas || offscreenCanvas.width !== modelInputSize) {
+  // Set up offscreen buffer matching model input size (416x416)
+  if (!offscreenCanvas || offscreenCanvas.width !== MODEL_INPUT_SIZE) {
     offscreenCanvas = document.createElement('canvas')
-    offscreenCanvas.width = modelInputSize
-    offscreenCanvas.height = modelInputSize
+    offscreenCanvas.width = MODEL_INPUT_SIZE
+    offscreenCanvas.height = MODEL_INPUT_SIZE
     offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true })
   }
 
@@ -173,13 +174,23 @@ export async function runYoloInference(
     return { detections: [], topDetection: null, inferenceTimeMs: 0 }
   }
 
-  // Draw current frame scaled into modelInputSize x modelInputSize
-  offscreenCtx.drawImage(video, 0, 0, modelInputSize, modelInputSize)
-  const imageData = offscreenCtx.getImageData(0, 0, modelInputSize, modelInputSize)
+  // Letterbox scaling: preserve video aspect ratio and pad borders with RGB(114, 114, 114)
+  const scale = Math.min(MODEL_INPUT_SIZE / srcWidth, MODEL_INPUT_SIZE / srcHeight)
+  const scaledW = Math.round(srcWidth * scale)
+  const scaledH = Math.round(srcHeight * scale)
+  const padX = (MODEL_INPUT_SIZE - scaledW) / 2
+  const padY = (MODEL_INPUT_SIZE - scaledH) / 2
+
+  // Neutral gray background padding (standard YOLO letterbox pad color)
+  offscreenCtx.fillStyle = '#727272'
+  offscreenCtx.fillRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
+  offscreenCtx.drawImage(source, padX, padY, scaledW, scaledH)
+
+  const imageData = offscreenCtx.getImageData(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE)
   const { data } = imageData
 
-  // Convert RGBA -> Normalized Float32 NCHW Tensor [1, 3, modelInputSize, modelInputSize]
-  const totalPixels = modelInputSize * modelInputSize
+  // Convert RGBA -> Normalized Float32 NCHW Tensor [1, 3, 416, 416]
+  const totalPixels = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE
   const float32Array = new Float32Array(3 * totalPixels)
   const rOffset = 0
   const gOffset = totalPixels
@@ -192,7 +203,7 @@ export async function runYoloInference(
     float32Array[bOffset + i] = data[srcIdx + 2] / 255.0
   }
 
-  const tensor = new ort.Tensor('float32', float32Array, [1, 3, modelInputSize, modelInputSize])
+  const tensor = new ort.Tensor('float32', float32Array, [1, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE])
 
   // Run model inference with dynamic input tensor name
   const inputName = session.inputNames[0] || 'images'
@@ -212,8 +223,8 @@ export async function runYoloInference(
   const rawCandidates: DetectionBox[] = []
 
   // Check output shape layout:
-  // Layout 1: [1, 38, 3549] (Ultralytics anchor-free layout [1, channels, num_anchors])
-  if (dims.length === 3 && dims[1] < dims[2]) {
+  // Ultralytics layout: [1, 38, 3549] (38 channels: 4 box coords + 34 class scores, 3549 anchors)
+  if (dims.length === 3 && dims[1] <= dims[2]) {
     const numChannels = dims[1]
     const numAnchors = dims[2]
     const numClasses = numChannels - 4
@@ -236,11 +247,11 @@ export async function runYoloInference(
         const w = outputData[2 * numAnchors + a]
         const h = outputData[3 * numAnchors + a]
 
-        // Normalized 0..1 bounding box coordinates
-        const normX = Math.max(0, Math.min(1, (cx - w / 2) / modelInputSize))
-        const normY = Math.max(0, Math.min(1, (cy - h / 2) / modelInputSize))
-        const normW = Math.max(0, Math.min(1, w / modelInputSize))
-        const normH = Math.max(0, Math.min(1, h / modelInputSize))
+        // Un-letterbox coordinates back to normalized 0..1 space relative to source video
+        const normX = Math.max(0, Math.min(1, (cx - w / 2 - padX) / scaledW))
+        const normY = Math.max(0, Math.min(1, (cy - h / 2 - padY) / scaledH))
+        const normW = Math.max(0, Math.min(1, w / scaledW))
+        const normH = Math.max(0, Math.min(1, h / scaledH))
 
         rawCandidates.push({
           x: normX,
@@ -250,51 +261,6 @@ export async function runYoloInference(
           classIndex: bestClassIndex,
           label: YOLO_SIGN_CLASSES[bestClassIndex] || `Class ${bestClassIndex}`,
           confidence: maxClassScore,
-        })
-      }
-    }
-  } else if (dims.length === 3) {
-    // Layout 2: [1, 25200, 11] (Legacy YOLOv5 layout [1, num_anchors, channels])
-    const numAnchors = dims[1]
-    const numChannels = dims[2]
-    const numClasses = numChannels - 5
-
-    for (let b = 0; b < numAnchors; b++) {
-      const base = b * numChannels
-      const objConf = outputData[base + 4]
-      if (objConf < 0.2) continue // Early prune
-
-      let maxClassScore = 0
-      let bestClassIndex = 0
-
-      for (let c = 0; c < numClasses; c++) {
-        const classScore = outputData[base + 5 + c]
-        if (classScore > maxClassScore) {
-          maxClassScore = classScore
-          bestClassIndex = c
-        }
-      }
-
-      const totalConfidence = objConf * maxClassScore
-      if (totalConfidence >= confidenceThreshold) {
-        const cx = outputData[base]
-        const cy = outputData[base + 1]
-        const w = outputData[base + 2]
-        const h = outputData[base + 3]
-
-        const normX = Math.max(0, Math.min(1, (cx - w / 2) / modelInputSize))
-        const normY = Math.max(0, Math.min(1, (cy - h / 2) / modelInputSize))
-        const normW = Math.max(0, Math.min(1, w / modelInputSize))
-        const normH = Math.max(0, Math.min(1, h / modelInputSize))
-
-        rawCandidates.push({
-          x: normX,
-          y: normY,
-          width: normW,
-          height: normH,
-          classIndex: bestClassIndex,
-          label: YOLO_SIGN_CLASSES[bestClassIndex] || `Class ${bestClassIndex}`,
-          confidence: totalConfidence,
         })
       }
     }
@@ -316,6 +282,8 @@ export async function runYoloInference(
  * Standard Non-Maximum Suppression algorithm
  */
 function applyNMS(candidates: DetectionBox[], iouThreshold: number): DetectionBox[] {
+  if (candidates.length === 0) return []
+
   // Sort descending by confidence score
   candidates.sort((a, b) => b.confidence - a.confidence)
 
@@ -331,6 +299,7 @@ function applyNMS(candidates: DetectionBox[], iouThreshold: number): DetectionBo
     for (let j = i + 1; j < candidates.length; j++) {
       if (!active[j]) continue
 
+      // Only suppress overlapping boxes of the same class or high general overlap
       const iou = calculateIoU(current, candidates[j])
       if (iou > iouThreshold) {
         active[j] = false
@@ -347,7 +316,9 @@ function calculateIoU(boxA: DetectionBox, boxB: DetectionBox): number {
   const xB = Math.min(boxA.x + boxA.width, boxB.x + boxB.width)
   const yB = Math.min(boxA.y + boxA.height, boxB.y + boxB.height)
 
-  const intersectionArea = Math.max(0, xB - xA) * Math.max(0, yB - yA)
+  const interW = Math.max(0, xB - xA)
+  const interH = Math.max(0, yB - yA)
+  const intersectionArea = interW * interH
   if (intersectionArea <= 0) return 0
 
   const areaA = boxA.width * boxA.height
